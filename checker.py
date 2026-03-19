@@ -154,39 +154,61 @@ def fire_alerts(platform_key, products):
     print(f"  ✅ Email alert sent for {p['name']}!")
 
 # ─── PLATFORM CHECKERS ─────────────────────────────────────────
+
+def extract_names_from_html(html):
+    import re
+    names = []
+    p1 = re.findall(r'"(?:name|title|product_name|display_name)"\s*:\s*"([^"]*[Hh]ot [Ww]heels[^"]{0,60})"', html)
+    names.extend(p1)
+    p2 = re.findall(r'>([^<]*[Hh]ot [Ww]heels[^<]{3,60})<', html)
+    names.extend([n.strip() for n in p2])
+    seen, clean = set(), []
+    for n in names:
+        n = n.strip()
+        if n not in seen and 8 < len(n) < 100:
+            seen.add(n)
+            clean.append(n)
+    return clean[:8]
+
+def extract_names_from_html(html):
+    import re as _re
+    names = []
+    p1 = _re.findall(r'"(?:name|title|display_name)"\s*:\s*"([^"]*[Hh]ot [Ww]heels[^"]{0,60})"', html)
+    names.extend(p1)
+    p2 = _re.findall(r'>([^<]*[Hh]ot [Ww]heels[^<]{3,60})<', html)
+    names.extend([n.strip() for n in p2])
+    seen, clean = set(), []
+    for n in names:
+        n = n.strip()
+        if n not in seen and 8 < len(n) < 100:
+            seen.add(n)
+            clean.append(n)
+    return clean[:8]
+
 def check_blinkit():
     products = []
     try:
         r = requests.get(
             "https://blinkit.com/v2/search/",
-            params={"q": "hot wheels", "page_no": 1, "page_size": 20},
-            headers={**HEADERS, "app_version": "3.0",
-                     "auth_key": "2a9ef3e3db36bed41e357a8fe83e1fe1",
-                     "lat": LAT, "lon": LON},
-            timeout=15
-        )
+            params={"q":"hot wheels","page_no":1,"page_size":20},
+            headers={**HEADERS,"app_version":"3.0","auth_key":"2a9ef3e3db36bed41e357a8fe83e1fe1","lat":LAT,"lon":LON},
+            timeout=15)
         if r.status_code == 200:
-            for obj in r.json().get("objects", []):
-                for item in obj.get("items", []):
+            for obj in r.json().get("objects",[]):
+                for item in obj.get("items",[]):
                     name = item.get("name","") or item.get("title","")
-                    if "hot wheel" in name.lower() or "hotwheels" in name.lower():
-                        products.append({
-                            "name": name,
-                            "price": f"₹{item.get('price', item.get('mrp','?'))}",
-                            "in_stock": item.get("in_stock", item.get("available", False))
-                        })
+                    if "hot wheel" in name.lower():
+                        products.append({"name":name,"price":"Rs."+str(item.get("price",item.get("mrp","?"))),"in_stock":item.get("in_stock",item.get("available",False))})
     except: pass
-
     if not products:
         try:
-            r = requests.get("https://blinkit.com/s/?q=hot+wheels",
-                             headers=HEADERS, timeout=15)
-            txt = r.text.lower()
-            if "hot wheel" in txt or "hotwheels" in txt:
-                oos = any(x in txt for x in ["out of stock","notify me","sold out"])
-                products.append({"name":"Hot Wheels","price":"—","in_stock": not oos})
+            r = requests.get("https://blinkit.com/s/?q=hot+wheels",headers=HEADERS,timeout=15)
+            txt = r.text
+            if "hot wheel" in txt.lower():
+                oos = any(x in txt.lower() for x in ["out of stock","notify me","sold out"])
+                for n in (extract_names_from_html(txt) or ["Hot Wheels (check Blinkit)"]):
+                    products.append({"name":n,"price":"Check app","in_stock":not oos})
         except: pass
-
     return products
 
 def check_zepto():
@@ -195,31 +217,25 @@ def check_zepto():
         r = requests.get(
             "https://api.zeptonow.com/api/v3/search/",
             params={"query":"hot wheels","page_number":0,"page_size":20,"pincode":PINCODE},
-            headers={**HEADERS, "store_id":"1","requestid":"tracker","appversion":"11.0.0"},
-            timeout=15
-        )
+            headers={**HEADERS,"store_id":"1","requestid":"tracker","appversion":"11.0.0"},
+            timeout=15)
         if r.status_code == 200:
             for section in r.json().get("data",{}).get("sections",[]):
                 for item in section.get("items",[]):
-                    name = item.get("name","") or item.get("product",{}).get("name","")
-                    if "hot wheel" in name.lower() or "hotwheels" in name.lower():
-                        products.append({
-                            "name": name,
-                            "price": f"₹{item.get('discounted_price', item.get('mrp','?'))}",
-                            "in_stock": not item.get("is_out_of_stock", True)
-                        })
+                    name = item.get("name","") or item.get("product",{}).get("name","") or item.get("display_name","")
+                    if "hot wheel" in name.lower():
+                        price = item.get("discounted_price") or item.get("mrp") or "?"
+                        products.append({"name":name,"price":"Rs."+str(price),"in_stock":not item.get("is_out_of_stock",True)})
     except: pass
-
     if not products:
         try:
-            r = requests.get("https://www.zeptonow.com/search?query=hot+wheels",
-                             headers=HEADERS, timeout=15)
-            txt = r.text.lower()
-            if "hot wheel" in txt or "hotwheels" in txt:
-                oos = any(x in txt for x in ["out of stock","notify me","sold out"])
-                products.append({"name":"Hot Wheels","price":"—","in_stock": not oos})
+            r = requests.get("https://www.zeptonow.com/search?query=hot+wheels",headers=HEADERS,timeout=15)
+            txt = r.text
+            if "hot wheel" in txt.lower():
+                oos = any(x in txt.lower() for x in ["out of stock","notify me","sold out"])
+                for n in (extract_names_from_html(txt) or ["Hot Wheels (check Zepto)"]):
+                    products.append({"name":n,"price":"Check app","in_stock":not oos})
         except: pass
-
     return products
 
 def check_swiggy():
@@ -228,31 +244,27 @@ def check_swiggy():
         r = requests.get(
             "https://www.swiggy.com/api/instamart/search",
             params={"query":"hot wheels","pageNumber":0,"pageSize":20,"lat":LAT,"lng":LON},
-            headers={**HEADERS, "Referer":"https://www.swiggy.com/"},
-            timeout=15
-        )
+            headers={**HEADERS,"Referer":"https://www.swiggy.com/"},
+            timeout=15)
         if r.status_code == 200:
-            for item in r.json().get("data",{}).get("products",[]):
+            data = r.json().get("data",{})
+            items = data.get("products",[]) or data.get("items",[])
+            for item in items:
                 name = item.get("display_name","") or item.get("name","")
-                if "hot wheel" in name.lower() or "hotwheels" in name.lower():
-                    products.append({
-                        "name": name,
-                        "price": f"₹{item.get('price','?')}",
-                        "in_stock": item.get("inStock", item.get("available", False))
-                    })
+                if "hot wheel" in name.lower():
+                    products.append({"name":name,"price":"Rs."+str(item.get("price",item.get("mrp","?"))),"in_stock":item.get("inStock",item.get("available",False))})
     except: pass
-
     if not products:
         try:
-            r = requests.get("https://www.swiggy.com/instamart/search?query=hot+wheels",
-                             headers=HEADERS, timeout=15)
-            txt = r.text.lower()
-            if "hot wheel" in txt or "hotwheels" in txt:
-                oos = any(x in txt for x in ["out of stock","notify me","sold out"])
-                products.append({"name":"Hot Wheels","price":"—","in_stock": not oos})
+            r = requests.get("https://www.swiggy.com/instamart/search?query=hot+wheels",headers=HEADERS,timeout=15)
+            txt = r.text
+            if "hot wheel" in txt.lower():
+                oos = any(x in txt.lower() for x in ["out of stock","notify me","sold out"])
+                for n in (extract_names_from_html(txt) or ["Hot Wheels (check Swiggy)"]):
+                    products.append({"name":n,"price":"Check app","in_stock":not oos})
         except: pass
-
     return products
+
 
 # ─── MAIN ──────────────────────────────────────────────────────
 if __name__ == "__main__":
