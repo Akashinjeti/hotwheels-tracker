@@ -8,6 +8,9 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write         # needed to commit state file back
+
     steps:
       - uses: actions/checkout@v4
 
@@ -21,7 +24,14 @@ jobs:
 
       - name: Run HotWheels checker
         env:
-          TELEGRAM_BOT_TOKEN: ""
           SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: python checker.py
+
+      - name: Save state back to repo
+        run: |
+          git config user.name "HotWheels Bot"
+          git config user.email "bot@hotwheels-tracker.com"
+          git add last_state.json
+          git diff --staged --quiet || git commit -m "Update stock state [skip ci]"
+          git push
