@@ -328,34 +328,56 @@ def run_check(token, smtp_email, smtp_pass):
     for key, fn in checkers.items():
         try:
             products = fn()
-            in_stock = [p for p in products if p.get("in_stock")]
-            status   = "instock" if in_stock else "outofstock"
+            in_stock  = [p for p in products if p.get("in_stock")]
+            new_status = "instock" if in_stock else "outofstock"
 
+            # Get PREVIOUS status before updating
+            prev_status = st.session_state.results.get(key, {}).get("status", "outofstock")
+
+            # Update results
             st.session_state.results[key] = {
-                "status":     status,
+                "status":     new_status,
                 "products":   products,
                 "last_check": now,
             }
 
-            alert_key = f"alert_sent_{key}"
+            # ── ONLY alert on OUT → IN transition (new restock!) ──
+            just_restocked = (prev_status == "outofstock" and new_status == "instock")
+
             if in_stock:
                 any_found = True
-                st.session_state.found_count += 1
-                if not st.session_state.get(alert_key, False):
-                    st.session_state[alert_key] = True
+                if just_restocked:
+                    # NEW restock detected — fire alert!
+                    st.session_state.found_count += 1
                     fire_alerts(key, in_stock, token, smtp_email, smtp_pass)
-                st.session_state.log.insert(0, {
-                    "time": now, "platform": key,
-                    "status": "found",
-                    "label": f"{len(in_stock)} item(s) on {PLATFORMS[key]['name']}"
-                })
+                    st.session_state.log.insert(0, {
+                        "time": now, "platform": key,
+                        "status": "found",
+                        "label": f"🔥 RESTOCK! {len(in_stock)} item(s) on {PLATFORMS[key]['name']}"
+                    })
+                else:
+                    # Still in stock from before — no alert
+                    st.session_state.log.insert(0, {
+                        "time": now, "platform": key,
+                        "status": "found",
+                        "label": f"Still in stock on {PLATFORMS[key]['name']}"
+                    })
             else:
-                st.session_state[alert_key] = False
-                st.session_state.log.insert(0, {
-                    "time": now, "platform": key,
-                    "status": "empty",
-                    "label": f"Out of stock on {PLATFORMS[key]['name']}"
-                })
+                if prev_status == "instock":
+                    # Just went OUT of stock
+                    st.session_state.log.insert(0, {
+                        "time": now, "platform": key,
+                        "status": "empty",
+                        "label": f"Went out of stock on {PLATFORMS[key]['name']}"
+                    })
+                else:
+                    # Still out of stock — silent log
+                    st.session_state.log.insert(0, {
+                        "time": now, "platform": key,
+                        "status": "empty",
+                        "label": f"Out of stock on {PLATFORMS[key]['name']}"
+                    })
+
         except Exception as e:
             st.session_state.log.insert(0, {
                 "time": now, "platform": key,
