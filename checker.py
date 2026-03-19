@@ -14,12 +14,10 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # ─── CONFIG ────────────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID   = "1695508762"
-SMTP_EMAIL         = os.environ.get("SMTP_EMAIL", "")
-SMTP_PASSWORD      = os.environ.get("SMTP_PASSWORD", "")
-PINCODE            = "500081"
-LAT, LON           = "17.4065", "78.4772"   # Hyderabad
+SMTP_EMAIL    = os.environ.get("SMTP_EMAIL", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+PINCODE       = "500081"
+LAT, LON      = "17.4065", "78.4772"   # Hyderabad
 
 # State file — tracks previous status to detect OUT→IN transition
 STATE_FILE = "last_state.json"
@@ -60,24 +58,6 @@ def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
 
-def send_telegram(message):
-    if not TELEGRAM_BOT_TOKEN:
-        print("⚠️  No Telegram token")
-        return False
-    try:
-        r = requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={"chat_id": TELEGRAM_CHAT_ID, "text": message,
-                  "parse_mode": "HTML", "disable_web_page_preview": False},
-            timeout=10
-        )
-        ok = r.status_code == 200
-        print(f"  📱 Telegram: {'✅ sent' if ok else '❌ failed'}")
-        return ok
-    except Exception as e:
-        print(f"  📱 Telegram error: {e}")
-        return False
-
 def send_email(subject, body_html):
     if not SMTP_EMAIL or not SMTP_PASSWORD:
         print("⚠️  No SMTP config")
@@ -100,49 +80,78 @@ def send_email(subject, body_html):
 def fire_alerts(platform_key, products):
     p    = PLATFORMS[platform_key]
     now  = datetime.now().strftime("%d %b %Y, %H:%M")
-    lines= "\n".join([f"• {x['name']} — {x['price']}" for x in products])
+    count = len(products)
+    car_names = ", ".join([x['name'] for x in products])
+    print(f"  🚗 Cars in stock: {car_names}")
 
-    # Telegram
-    tg_msg = f"""{p['emoji']} <b>🚗 HOT WHEELS RESTOCKED on {p['name'].upper()}!</b>
-
-📍 Pincode: {PINCODE} · Hyderabad
-⏰ {now}
-
-<b>In Stock Now:</b>
-{lines}
-
-🛒 <a href="{p['link']}">Order Now on {p['name']}</a>
-
-<i>⚡ Hurry — they sell out fast!</i>"""
-    send_telegram(tg_msg)
-
-    # Email
-    product_rows = "".join([
-        f'<div style="padding:.5rem 0;border-bottom:1px solid #222;">'
-        f'<b style="color:#FFD700;">{x["name"]}</b> — '
-        f'<span style="color:#00C896;">{x["price"]}</span></div>'
+    # Build product rows for email
+    product_rows_html = "".join([
+        f"""<tr>
+          <td style="padding:10px 14px;border-bottom:1px solid #1a1a1a;font-size:1.1rem;">🚗</td>
+          <td style="padding:10px 14px;border-bottom:1px solid #1a1a1a;">
+            <b style="color:#FFD700;">{x['name']}</b>
+          </td>
+          <td style="padding:10px 14px;border-bottom:1px solid #1a1a1a;text-align:right;">
+            <span style="color:#00C896;font-weight:700;">{x['price']}</span>
+          </td>
+        </tr>"""
         for x in products
     ])
+
     email_html = f"""
-    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#F0F0F0;padding:2rem;max-width:500px;margin:0 auto;border-radius:12px;">
-      <h1 style="color:#FFD700;letter-spacing:4px;margin:0;">🚗 HOTWHEELS</h1>
-      <h2 style="color:#00C896;margin:.5rem 0;">Restocked on {p['name']}!</h2>
-      <p style="color:#666;">Detected at <b style="color:#fff;">{now}</b><br>
-         Pincode: <b style="color:#fff;">{PINCODE}</b> · Hyderabad</p>
-      <div style="background:#141414;border:1px solid #222;border-radius:8px;padding:1rem;margin:1rem 0;">
-        {product_rows}
+    <div style="font-family:Arial,sans-serif;background:#0a0a0a;color:#F0F0F0;
+                max-width:520px;margin:0 auto;">
+
+      <!-- Header -->
+      <div style="background:linear-gradient(135deg,#1a1200,#111);padding:2rem;
+                  text-align:center;border-bottom:3px solid #FFD700;">
+        <div style="font-size:3rem;">🚗</div>
+        <h1 style="color:#FFD700;letter-spacing:5px;margin:.3rem 0;font-size:2rem;">HOTWHEELS</h1>
+        <div style="color:#666;letter-spacing:3px;font-size:.72rem;">RESTOCK ALERT · {PINCODE} HYDERABAD</div>
       </div>
-      <a href="{p['link']}"
-         style="display:inline-block;background:#FFD700;color:#000;font-weight:700;
-                padding:14px 32px;border-radius:8px;text-decoration:none;
-                letter-spacing:1px;margin-top:1rem;font-size:1rem;">
-        🛒 ORDER NOW
-      </a>
-      <p style="color:#333;font-size:.72rem;margin-top:2rem;border-top:1px solid #1a1a1a;padding-top:1rem;">
-        HotWheels Tracker · Built by Akash Injeti · Pincode {PINCODE}
-      </p>
+
+      <!-- Platform + time -->
+      <div style="background:#111;padding:1rem 1.5rem;border-bottom:1px solid #222;
+                  display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <span style="font-size:1.2rem;">{p['emoji']}</span>
+          <b style="color:#E8E8E8;margin-left:.4rem;">{p['name']}</b>
+        </div>
+        <div style="display:flex;align-items:center;gap:1rem;">
+          <span style="color:#555;font-size:.78rem;">⏰ {now}</span>
+          <span style="background:rgba(0,200,150,.15);color:#00C896;font-weight:700;
+                       font-size:.72rem;padding:3px 10px;border-radius:20px;">
+            {count} IN STOCK
+          </span>
+        </div>
+      </div>
+
+      <!-- Cars -->
+      <div style="padding:1.5rem;">
+        <div style="color:#555;font-size:.68rem;letter-spacing:2px;
+                    text-transform:uppercase;margin-bottom:.8rem;">Cars Available Right Now</div>
+        <table style="width:100%;border-collapse:collapse;background:#141414;border-radius:10px;overflow:hidden;">
+          {product_rows_html}
+        </table>
+      </div>
+
+      <!-- CTA -->
+      <div style="padding:0 1.5rem 2rem;text-align:center;">
+        <a href="{p['link']}"
+           style="display:inline-block;background:#FFD700;color:#000;font-weight:700;
+                  padding:14px 40px;border-radius:8px;text-decoration:none;
+                  letter-spacing:2px;font-size:1rem;width:80%;box-sizing:border-box;">
+          🛒 ORDER NOW ON {p['name'].upper()}
+        </a>
+        <div style="color:#222;font-size:.7rem;margin-top:1.5rem;">
+          HotWheels Tracker · Built by Akash Injeti · Runs 24/7
+        </div>
+      </div>
     </div>"""
-    send_email(f"🚗 Hot Wheels RESTOCKED on {p['name']}! ({PINCODE})", email_html)
+
+    subject = f"🚗 {count} Hot Wheels on {p['name']}! — {car_names[:50]}{'...' if len(car_names)>50 else ''}"
+    send_email(subject, email_html)
+    print(f"  ✅ Email alert sent for {p['name']}!")
 
 # ─── PLATFORM CHECKERS ─────────────────────────────────────────
 def check_blinkit():
